@@ -1,5 +1,5 @@
 #[cfg(windows)]
-use std::os::windows::prelude::*;
+use std::os::windows::fs::MetadataExt;
 use std::{
     fmt::{Debug, Display},
     io::Cursor,
@@ -708,19 +708,16 @@ impl TransferJob {
                     return Ok(());
                 };
                 if self.data_stream.is_none() {
-                    match File::open(Self::join(p, &self.files[file_num].name)).await {
-                        Ok(file) => {
-                            self.data_stream = Some(DataStream::FileStream(file));
-                            self.file_confirmed = false;
-                            self.file_is_waiting = false;
-                        }
-                        Err(err) => {
+                    let file = File::open(Self::join(p, &self.files[file_num].name))
+                        .await
+                        .inspect_err(|_err| {
                             self.file_num += 1;
                             self.file_confirmed = false;
                             self.file_is_waiting = false;
-                            return Err(err.into());
-                        }
-                    }
+                        })?;
+                    self.data_stream = Some(DataStream::FileStream(file));
+                    self.file_confirmed = false;
+                    self.file_is_waiting = false;
                 }
             }
             DataSource::MemoryCursor(c) => {
@@ -731,13 +728,13 @@ impl TransferJob {
                 }
             }
         }
-        if self.r#type == JobType::Generic {
-            if self.enable_overwrite_detection && !self.file_confirmed() {
-                if !self.file_is_waiting() {
-                    self.send_current_digest(stream).await?;
-                    self.set_file_is_waiting(true);
-                }
-            }
+        if self.r#type == JobType::Generic
+            && self.enable_overwrite_detection
+            && !self.file_confirmed()
+            && !self.file_is_waiting()
+        {
+            self.send_current_digest(stream).await?;
+            self.set_file_is_waiting(true);
         }
         Ok(())
     }
@@ -751,19 +748,16 @@ impl TransferJob {
         }
 
         let file_num = self.file_num as usize;
-        let name: &str;
-        match &mut self.data_source {
+        let name: &str = match &mut self.data_source {
             DataSource::FilePath(..) => {
                 if file_num >= self.files.len() {
                     self.data_stream.take();
                     return Ok(None);
                 };
-                name = &self.files[file_num].name;
+                &self.files[file_num].name
             }
-            DataSource::MemoryCursor(..) => {
-                name = "";
-            }
-        }
+            DataSource::MemoryCursor(..) => "",
+        };
         const BUF_SIZE: usize = 128 * 1024;
         let mut buf: Vec<u8> = vec![0; BUF_SIZE];
         let mut compressed = false;
@@ -935,6 +929,7 @@ impl TransferJob {
                 // If both download and digest files exist, seek (writer) to the offset
                 match OpenOptions::new()
                     .create(true)
+                    .truncate(false)
                     .write(true)
                     .open(&download_path)
                     .await
@@ -1136,7 +1131,7 @@ pub fn get_job_immutable(id: i32, jobs: &[TransferJob]) -> Option<&TransferJob> 
     jobs.iter().find(|x| x.id() == id)
 }
 
-async fn init_jobs(jobs: &mut Vec<TransferJob>, stream: &mut crate::Stream) -> ResultType<()> {
+async fn init_jobs(jobs: &mut [TransferJob], stream: &mut crate::Stream) -> ResultType<()> {
     for job in jobs.iter_mut() {
         if job.is_last_job {
             continue;
