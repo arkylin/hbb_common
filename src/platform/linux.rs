@@ -162,7 +162,7 @@ pub fn get_display_server_of_session(session: &str) -> String {
 #[inline]
 fn line_values(indices: &[usize], line: &str) -> Vec<String> {
     indices
-        .into_iter()
+        .iter()
         .map(|idx| line.split_whitespace().nth(*idx).unwrap_or("").to_owned())
         .collect::<Vec<String>>()
 }
@@ -191,12 +191,11 @@ fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<Stri
             if line.contains("seat0") {
                 if let Some(sid) = line.split_whitespace().next() {
                     if is_active(sid) {
-                        if ignore_gdm_wayland {
-                            if is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
-                                && get_display_server_of_session(sid) == DISPLAY_SERVER_WAYLAND
-                            {
-                                continue;
-                            }
+                        if ignore_gdm_wayland
+                            && is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
+                            && get_display_server_of_session(sid) == DISPLAY_SERVER_WAYLAND
+                        {
+                            continue;
                         }
                         return line_values(indices, line);
                     }
@@ -212,12 +211,11 @@ fn _get_values_of_seat0(indices: &[usize], ignore_gdm_wayland: bool) -> Vec<Stri
             if let Some(sid) = line.split_whitespace().next() {
                 if is_active(sid) {
                     let d = get_display_server_of_session(sid);
-                    if ignore_gdm_wayland {
-                        if is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
-                            && d == DISPLAY_SERVER_WAYLAND
-                        {
-                            continue;
-                        }
+                    if ignore_gdm_wayland
+                        && is_gdm_user(line.split_whitespace().nth(2).unwrap_or(""))
+                        && d == DISPLAY_SERVER_WAYLAND
+                    {
+                        continue;
                     }
                     if d == "tty" || d == "unspecified" {
                         continue;
@@ -270,12 +268,11 @@ pub fn run_cmds_trim_newline(cmds: &str) -> ResultType<String> {
     let output = std::process::Command::new(CMD_SH.as_str())
         .args(vec!["-c", cmds])
         .output()?;
-    let out = String::from_utf8_lossy(&output.stdout);
-    Ok(if out.ends_with('\n') {
-        out[..out.len() - 1].to_string()
-    } else {
-        out.to_string()
-    })
+
+    let out = String::from_utf8(output.stdout)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    Ok(out.strip_suffix('\n').map(|s| s.to_string()).unwrap_or(out))
 }
 
 fn run_loginctl(args: Option<Vec<&str>>) -> std::io::Result<std::process::Output> {

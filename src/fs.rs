@@ -217,19 +217,16 @@ fn read_empty_dirs_recursive(
             dirs.push(fd);
         } else {
             for entry in fd.entries.iter() {
-                match entry.entry_type.enum_value() {
-                    Ok(FileType::Dir) => {
-                        if let Ok(mut tmp) = read_empty_dirs_recursive(
-                            &path.join(&entry.name),
-                            &prefix.join(&entry.name),
-                            include_hidden,
-                        ) {
-                            for entry in tmp.drain(0..) {
-                                dirs.push(entry);
-                            }
+                if let Ok(FileType::Dir) = entry.entry_type.enum_value() {
+                    if let Ok(mut tmp) = read_empty_dirs_recursive(
+                        &path.join(&entry.name),
+                        &prefix.join(&entry.name),
+                        include_hidden,
+                    ) {
+                        for entry in tmp.drain(0..) {
+                            dirs.push(entry);
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -250,7 +247,7 @@ pub fn get_empty_dirs_recursive(
 
 #[inline]
 pub fn is_file_exists(file_path: &str) -> bool {
-    return Path::new(file_path).exists();
+    Path::new(file_path).exists()
 }
 
 #[inline]
@@ -259,16 +256,11 @@ pub fn can_enable_overwrite_detection(version: i64) -> bool {
 }
 
 #[repr(i32)]
-#[derive(Copy, Clone, Serialize, Debug, PartialEq)]
+#[derive(Copy, Clone, Serialize, Debug, PartialEq, Default)]
 pub enum JobType {
+    #[default]
     Generic = 0,
     Printer = 1,
-}
-
-impl Default for JobType {
-    fn default() -> Self {
-        JobType::Generic
-    }
 }
 
 impl From<JobType> for file_transfer_send_request::FileType {
@@ -290,9 +282,9 @@ impl From<i32> for JobType {
     }
 }
 
-impl Into<i32> for JobType {
-    fn into(self) -> i32 {
-        self as i32
+impl From<JobType> for i32 {
+    fn from(val: JobType) -> Self {
+        val as i32
     }
 }
 
@@ -333,7 +325,7 @@ impl serde::Serialize for DataSource {
 impl Display for DataSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DataSource::FilePath(p) => write!(f, "File: {}", p.to_string_lossy().to_string()),
+            DataSource::FilePath(p) => write!(f, "File: {}", p.to_string_lossy()),
             DataSource::MemoryCursor(_) => write!(f, "Bytes"),
         }
     }
@@ -486,38 +478,43 @@ impl TransferJob {
             ..Default::default()
         }
     }
+}
 
-    pub fn new_read(
-        id: i32,
-        r#type: JobType,
-        remote: String,
-        data_source: DataSource,
-        file_num: i32,
-        show_hidden: bool,
-        is_remote: bool,
-        enable_overwrite_detection: bool,
-    ) -> ResultType<Self> {
-        log::info!("new read {}", data_source);
-        let (files, total_size) = match &data_source {
+#[derive(Default)]
+pub struct ReadJobOptions {
+    pub id: i32,
+    pub r#type: JobType,
+    pub remote: String,
+    pub data_source: DataSource,
+    pub file_num: i32,
+    pub show_hidden: bool,
+    pub is_remote: bool,
+    pub enable_overwrite_detection: bool,
+}
+
+impl TransferJob {
+    pub fn new_read(options: ReadJobOptions) -> ResultType<Self> {
+        log::info!("new read {}", options.data_source);
+        let (files, total_size) = match &options.data_source {
             DataSource::FilePath(p) => {
                 let p = p.to_str().ok_or(anyhow!("Invalid path"))?;
-                let files = get_recursive_files(p, show_hidden)?;
+                let files = get_recursive_files(p, options.show_hidden)?;
                 let total_size = files.iter().map(|x| x.size).sum();
                 (files, total_size)
             }
             DataSource::MemoryCursor(c) => (Vec::new(), c.get_ref().len() as u64),
         };
         Ok(Self {
-            id,
-            r#type,
-            remote,
-            data_source,
-            file_num,
-            show_hidden,
-            is_remote,
+            id: options.id,
+            r#type: options.r#type,
+            remote: options.remote,
+            data_source: options.data_source,
+            file_num: options.file_num,
+            show_hidden: options.show_hidden,
+            is_remote: options.is_remote,
             files,
             total_size,
-            enable_overwrite_detection,
+            enable_overwrite_detection: options.enable_overwrite_detection,
             ..Default::default()
         })
     }
@@ -693,9 +690,9 @@ impl TransferJob {
     }
 
     #[inline]
-    pub fn join(p: &PathBuf, name: &str) -> PathBuf {
+    pub fn join(p: &Path, name: &str) -> PathBuf {
         if name.is_empty() {
-            p.clone()
+            p.to_path_buf()
         } else {
             p.join(name)
         }
@@ -750,6 +747,7 @@ impl TransferJob {
             if self.enable_overwrite_detection && !self.file_confirmed() {
                 return Ok(None);
             }
+            return Ok(None);
         }
 
         let file_num = self.file_num as usize;
@@ -1236,8 +1234,8 @@ pub fn rename_file(path: &str, new_name: &str) -> ResultType<()> {
         let dir = path
             .parent()
             .ok_or(anyhow!("Parent directoy of {path:?} not exists"))?;
-        let new_path = dir.join(&new_name);
-        std::fs::rename(&path, &new_path)?;
+        let new_path = dir.join(new_name);
+        std::fs::rename(path, &new_path)?;
         Ok(())
     } else {
         bail!("{path:?} not exists");

@@ -9,14 +9,10 @@ use crate::{
 };
 use bytes::{Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
-use std::{
-    io::{Error, ErrorKind},
-    net::SocketAddr,
-    time::Duration,
-};
+use std::{io::Error, net::SocketAddr, time::Duration};
 use tokio::{net::TcpStream, time::timeout};
 use tokio_tungstenite::{
-    connect_async, tungstenite::protocol::Message as WsMessage, MaybeTlsStream, WebSocketStream,
+    tungstenite::protocol::Message as WsMessage, MaybeTlsStream, WebSocketStream,
 };
 use tungstenite::client::IntoClientRequest;
 use tungstenite::protocol::Role;
@@ -39,12 +35,13 @@ impl WsFramedStream {
 
         // to-do: websocket proxy.
 
-        let request = url_str
-            .into_client_request()
-            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+        let request = url_str.into_client_request().map_err(Error::other)?;
 
-        let (stream, _) =
-            timeout(Duration::from_millis(ms_timeout), connect_async(request)).await??;
+        let (stream, _) = timeout(
+            Duration::from_millis(ms_timeout),
+            tokio_tungstenite::connect_async_with_config(request, None, false),
+        )
+        .await??;
 
         let addr = match stream.get_ref() {
             MaybeTlsStream::Plain(tcp) => tcp.peer_addr()?,
@@ -52,7 +49,7 @@ impl WsFramedStream {
             MaybeTlsStream::NativeTls(tls) => tls.get_ref().get_ref().get_ref().peer_addr()?,
             #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             MaybeTlsStream::Rustls(tls) => tls.get_ref().0.peer_addr()?,
-            _ => return Err(Error::new(ErrorKind::Other, "Unsupported stream type").into()),
+            _ => return Err(Error::other("Unsupported stream type").into()),
         };
 
         let ws = Self {
@@ -139,10 +136,10 @@ impl WsFramedStream {
                 Ok(msg) => msg,
                 Err(e) => {
                     log::error!("{}", e);
-                    return Some(Err(Error::new(
-                        ErrorKind::Other,
-                        format!("WebSocket protocol error: {}", e),
-                    )));
+                    return Some(Err(Error::other(format!(
+                        "WebSocket protocol error: {}",
+                        e
+                    ))));
                 }
             };
 
@@ -174,10 +171,7 @@ impl WsFramedStream {
 
     #[inline]
     pub async fn next_timeout(&mut self, ms: u64) -> Option<Result<BytesMut, Error>> {
-        match timeout(Duration::from_millis(ms), self.next()).await {
-            Ok(res) => res,
-            Err(_) => None,
-        }
+        (timeout(Duration::from_millis(ms), self.next()).await).unwrap_or_default()
     }
 }
 
