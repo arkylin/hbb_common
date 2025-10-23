@@ -451,9 +451,9 @@ impl Proxy {
         Input: AsyncRead + AsyncWrite + Unpin,
         T: IntoTargetAddr<'a>,
     {
-        use rustls_platform_verifier::tls_config;
+        use rustls_platform_verifier::ConfigVerifierExt;
         use std::convert::TryFrom;
-        let verifier = tls_config();
+        let verifier = rustls::ClientConfig::with_platform_verifier();
 
         let url_domain = self.intercept.get_domain()?;
 
