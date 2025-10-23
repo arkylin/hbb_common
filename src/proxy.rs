@@ -453,6 +453,7 @@ impl Proxy {
     {
         use rustls_platform_verifier::ConfigVerifierExt;
         use std::convert::TryFrom;
+        use tokio_rustls::rustls;
         let verifier = rustls::ClientConfig::with_platform_verifier();
 
         let url_domain = self.intercept.get_domain()?;
